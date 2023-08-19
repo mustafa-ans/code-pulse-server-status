@@ -9,13 +9,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:extension.runCargoWatch"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "code-pulse-server-status.helloWorld",
-        "title": "Hello World"
+        "command": "extension.runCargoWatch",
+            "title": "Run Cargo Watch"
       }
     ]
   },
