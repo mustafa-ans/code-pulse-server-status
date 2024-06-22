@@ -1,75 +1,62 @@
 import * as vscode from 'vscode';
-import * as path from 'path'; // Import path module
-import * as cp from 'child_process'; // Import child_process module
-
-import { ChildProcess, fork } from 'child_process'; // Import fork for IPC
-
-let watcherProcess: ChildProcess | undefined;
-
-let statusBarItem: vscode.StatusBarItem;
-let isExtensionRunning: boolean = false; // Track whether the extension is running
-let isServerRunning: boolean = false; // Track whether the server is running
 
 export function activate(context: vscode.ExtensionContext) {
-    // Create a status bar item with the "play-circle" icon initially
-    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
-    statusBarItem.text = "$(play-circle)";
-    statusBarItem.tooltip = "Click to run cargo watch -x run";
-    statusBarItem.command = 'extension.runCargoWatch';
+    // Create a status bar item
+    let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.text = '$(play-circle) Start';
+    statusBarItem.command = 'extension.startCargoWatch';
     statusBarItem.show();
+    context.subscriptions.push(statusBarItem);
 
-    // Register the command to run Cargo Watch
-    const disposable = vscode.commands.registerCommand('extension.runCargoWatch', () => {
-        isExtensionRunning = true; // Extension is now in use
-        updateStatusBarIcon(); // Update the status bar icon
-        // Run the cargo watch command
-        const terminal = vscode.window.createTerminal('Cargo Watch');
-        terminal.sendText('cargo watch -x run');
+    // Register the command
+    let disposable = vscode.commands.registerCommand('extension.startCargoWatch', () => {
+        statusBarItem.text = '$(issue-reopened) Compiling...';
+
+        // Create an EventEmitter for the pseudoterminal
+        const writeEmitter = new vscode.EventEmitter<string>();
+
+        // Create a pseudoterminal
+        const pty: vscode.Pseudoterminal = {
+            onDidWrite: writeEmitter.event,
+            open: () => {
+                const childProcess = require('child_process').spawn('cargo', ['watch', '-x', 'run']);
+                
+                childProcess.stdout.on('data', (data: Buffer) => {
+                    const output = data.toString();
+                    console.log(output); // Log the output for debugging
+                    writeEmitter.fire(output);
+
+                    if (output.includes('Finished')) {
+                        statusBarItem.text = '$(pulse) Running';
+                    } else if (output.includes('error')) {
+                        statusBarItem.text = '$(chrome-minimize) Compilation Failed';
+                    }
+                });
+
+                childProcess.stderr.on('data', (data: Buffer) => {
+                    const errorOutput = data.toString();
+                    console.error(errorOutput); // Log the error output for debugging
+                    writeEmitter.fire(errorOutput);
+                    statusBarItem.text = '$(chrome-minimize) Compilation Failed';
+                });
+
+                childProcess.on('close', (code: number) => {
+                    if (code === 0) {
+                        statusBarItem.text = '$(pulse) Running';
+                    } else {
+                        statusBarItem.text = '$(chrome-minimize) Compilation Failed';
+                    }
+                });
+            },
+            close: () => {}
+        };
+
+        // Create and show the terminal
+        const terminal = vscode.window.createTerminal({ name: 'Cargo Watch', pty });
         terminal.show();
-        // Start the terminal output watcher
-        const terminalOutputFilePath = path.join(vscode.workspace.workspaceFolders![0].uri.fsPath,'terminal-output.txt');
-          
-        // Use fork to spawn the terminalWatcher.js process for IPC
-        watcherProcess = fork('terminalWatcher.js', [terminalOutputFilePath]);
-
-        watcherProcess.on('message', (message) => {
-            if (message === 'server_running') {
-                isServerRunning = true;
-                updateStatusBarIcon();
-            }
-        });
     });
 
-    // Add the disposable to the context's subscriptions
-    context.subscriptions.push(statusBarItem, disposable);
+    context.subscriptions.push(disposable);
 }
 
-export function deactivate() {
-    // Dispose the status bar item when the extension is deactivated
-    statusBarItem.dispose();
-    if (watcherProcess) {
-        watcherProcess.kill();
-    }
-    isServerRunning = false; // Reset server status
-    updateStatusBarIcon(); // Update the status bar icon immediately
-}
-
-
-// Function to update the status bar icon based on the extension state
-function updateStatusBarIcon() {
-    if (isExtensionRunning) {
-        if (isServerRunning) {
-            statusBarItem.text = "$(radio-tower)"; // Change icon to "radio-tower"
-        } else {
-            statusBarItem.text = "$(pulse)"; // Change icon to "pulse"
-        }
-    } else {
-        statusBarItem.text = "$(play-circle)"; // Change icon to "play-circle"
-    }
-    
-    statusBarItem.show(); // Make sure to call show() after changing the text property
-}
-
-
-// Register an interval to update the icon periodically (for example, every second)
-setInterval(updateStatusBarIcon, 1000); // You can adjust the interval as needed
+export function deactivate() {}
