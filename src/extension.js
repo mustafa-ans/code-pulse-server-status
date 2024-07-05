@@ -26,7 +26,7 @@ function activate(context) {
         const writeEmitter = new vscode.EventEmitter();
 
         // Flag to track compilation success
-        let is_compilation_success = false;
+        let isCompilationComplete = false;
 
         // Create a pseudoterminal
         const pty = {
@@ -44,13 +44,15 @@ function activate(context) {
                     const runningPattern = /\s*Running `target\\debug\\[^`]+`/;
 
                     if (runningPattern.test(output)) {
-                        is_compilation_success = true;
+                        isCompilationComplete = true;
+                    } else if (finishedPattern.test(output)) {
+                        isCompilationComplete = true;
                     } else if (output.includes('error: could not compile')) {
-                        is_compilation_success = false;
+                        isCompilationComplete = false;
                     }
 
                     // Update status bar based on the flag
-                    if (is_compilation_success) {
+                    if (isCompilationComplete) {
                         statusBarItem.text = '$(pulse)';
                     } else {
                         statusBarItem.text = '$(chrome-minimize)';
@@ -61,7 +63,7 @@ function activate(context) {
                 childProcess.stderr.on('data', handleOutput);
 
                 childProcess.on('close', (code) => {
-                    if (code === 0 && is_compilation_success) {
+                    if (code === 0 && isCompilationComplete) {
                         statusBarItem.text = '$(pulse) Running';
                     } else {
                         statusBarItem.text = '$(chrome-minimize) close';
