@@ -60,6 +60,19 @@ If you still want to explore the extension locally:
 
 This was always a small experimental project rather than a production-ready extension. Its value today is mainly educational: it shows how a VS Code extension can connect editor UI with external CLI tooling.
 
+## Future Plans
+
+This project is deprecated in its current form, but the idea behind it still has value.
+
+A future rewrite could replace `cargo-watch` with a more stable and modern tool such as [`bacon`](https://github.com/canop/bacon), while keeping the same goal of surfacing Rust build status directly in the VS Code status bar.
+
+That would allow the project to continue as:
+- a useful developer productivity tool,
+- a cleaner extension architecture,
+- and a practical example of integrating Rust workflows with the VS Code extension API.
+
+Until then, this repository serves as an educational prototype and reference implementation.
+
 ## License
 
 Any code in this repository is free to use.
