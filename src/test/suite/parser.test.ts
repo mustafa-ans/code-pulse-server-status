@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { parseCargoLine } from '../../extension';
+import { parseCargoLine } from '../../cargo';
 
 suite('parseCargoLine', () => {
 	test('blank lines are ignored', () => {

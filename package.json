@@ -1,7 +1,7 @@
 {
   "name": "code-pulse-server-status",
   "displayName": "Code Pulse",
-  "description": "Real-time Rust build and server status in the VS Code status bar. Save a .rs file and watch the status bar icon change from building to running or failed — no need to keep an eye on the terminal. Self-contained: no cargo-watch or other external watcher required.",
+  "description": "Real-time Rust build and server status in the VS Code status bar. Save a .rs file and watch the status bar icon change from building to running or failed, no need to keep an eye on the terminal. Self-contained: no cargo-watch or other external watcher required.",
   "version": "0.1.0",
   "publisher": "code-pulse",
   "license": "MIT",
@@ -55,10 +55,10 @@
             "test"
           ],
           "enumDescriptions": [
-            "cargo check — fast type-check, no binary.",
-            "cargo run — compile and launch the binary/server.",
-            "cargo clippy — lint with Clippy.",
-            "cargo test — build and run tests."
+            "cargo check, fast type-check, no binary.",
+            "cargo run, compile and launch the binary/server.",
+            "cargo clippy, lint with Clippy.",
+            "cargo test, build and run tests."
           ],
           "default": "run",
           "description": "Which cargo command Code Pulse runs."
