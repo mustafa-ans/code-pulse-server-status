@@ -1,78 +1,60 @@
-# code-pulse-server-status
+# Code Pulse
 
-A small VS Code extension that monitors Rust build activity and updates the status bar based on `cargo watch` output.
+A small VS Code extension that shows your Rust project's build and server status in the status bar. Save a `.rs` file and the status bar icon tells you whether the code is compiling, running, or broken — so you don't have to keep switching to the terminal while you wait for a slow Rust build.
 
-## Project Status
+It's aimed at people who do a lot of manual edit-compile-test loops (including beginners): make a change, save, glance at the status bar.
 
-> **Deprecated:** This project is no longer recommended for real-world use because it depends on [`cargo-watch`](https://crates.io/crates/cargo-watch), which has been deprecated.
+## Status
 
-This repository is kept as a small learning project and reference implementation for:
-- building a VS Code extension,
-- creating a status bar item,
-- launching a child process from an extension,
-- streaming terminal output through a pseudo-terminal,
-- reacting to Rust build success and failure events.
+Revived and self-contained. The original version was built on [`cargo-watch`](https://github.com/watchexec/cargo-watch), which was archived (read-only) in January 2025. This version drops that dependency entirely.
 
-## What It Does
+## How it works
 
-When triggered from the VS Code status bar, the extension starts a `cargo watch -x run` process and listens to its output.
+Code Pulse doesn't need an external file-watcher tool. It uses two things VS Code and cargo already provide:
 
-Based on the detected build state, it updates the status bar icon to indicate whether:
-- compilation is in progress,
-- the project compiled successfully,
-- the build failed,
-- or the watched process closed.
+1. **VS Code's own save event** as the watcher — when you save a Rust file, a build is triggered.
+2. **cargo's machine-readable JSON output** (`cargo <cmd> --message-format=json-diagnostic-rendered-ansi`) to read the result. Build status comes from the structured `build-finished` record, not from grepping localized terminal text — so it doesn't break when cargo changes its wording or on different platforms.
 
-The goal was to give Rust developers a lightweight visual signal for build status without constantly checking terminal output.
+Output streams into a reusable "Code Pulse" terminal that looks like a normal cargo session. The indicator lives on the **right-hand side** of the status bar.
 
-## How It Works
+## Status bar states
 
-The extension:
-- adds a clickable status bar item in VS Code,
-- starts a child process using `cargo watch -x run`,
-- opens a VS Code pseudo-terminal to display command output,
-- parses stdout and stderr for compilation-related patterns,
-- updates the status bar text/icons depending on the inferred state.
+| State | Status bar | Meaning |
+| --- | --- | --- |
+| Idle | `○ Code Pulse` | Ready — click to build |
+| Building | `⟳ Building…` | Compiling |
+| Build OK | `✓ Build OK` | `cargo check` succeeded |
+| Running | `❤ Running` | `cargo run` build succeeded; the binary/server is up |
+| Exited | `⊘ Exited` | The `cargo run` process finished and exited cleanly — click to run again |
+| Failed | `⊗` (red, icon only) | Build failed; the output terminal is revealed |
 
-## Why It Is Deprecated
+The `Running` (pulse) state persists only while the process stays alive — i.e. a real long-running server. A short `cargo run` that prints and exits will flash `Running` and then settle on `Exited`.
 
-This extension was built around `cargo-watch`, and that dependency is now deprecated. Because of that, this project is no longer a good practical choice for modern Rust workflows.
+## Settings
 
-## Recommended Alternative
+| Setting | Default | Description |
+| --- | --- | --- |
+| `codePulse.command` | `run` | `check` (faster, just verifies it compiles) or `run` (compiles and launches the binary/server). |
+| `codePulse.runOnSave` | `true` | Rebuild automatically when a Rust file is saved. |
+| `codePulse.revealTerminalOnFailure` | `true` | Pop open the output terminal when a build fails. |
+| `codePulse.cargoPath` | `cargo` | Path to the cargo executable if it isn't on your PATH. |
 
-Use [`bacon`](https://github.com/canop/bacon) instead.
+## Commands
 
-`bacon` provides a more capable and actively relevant workflow for watching Rust projects and reacting to build/test events.
+- **Code Pulse: Build / Restart** — start or restart a build (also the status-bar click action).
+- **Code Pulse: Stop** — stop the current build/server.
+- **Code Pulse: Show Output Terminal** — reveal the output terminal.
 
-## Running the Project
-
-If you still want to explore the extension locally:
+## Running locally
 
 1. Clone the repository.
-2. Install dependencies with `npm install` if required by the project setup.
-3. Open the project in VS Code.
-4. Press `F5` to launch the extension development host.
-5. Open a Rust workspace and click the status bar item to start the watcher.
+2. `npm install`
+3. `npm run compile` (or `npm run watch` for incremental builds).
+4. Press `F5` to launch the Extension Development Host.
+5. Open a Rust workspace (one containing `Cargo.toml`) and save a `.rs` file.
 
-> Note: This only works in environments where `cargo watch` is installed and available in your PATH.
-
-## Notes
-
-This was always a small experimental project rather than a production-ready extension. Its value today is mainly educational: it shows how a VS Code extension can connect editor UI with external CLI tooling.
-
-## Future Plans
-
-This project is deprecated in its current form, but the idea behind it still has value.
-
-A future rewrite could replace `cargo-watch` with a more stable and modern tool such as [`bacon`](https://github.com/canop/bacon), while keeping the same goal of surfacing Rust build status directly in the VS Code status bar.
-
-That would allow the project to continue as:
-- a useful developer productivity tool,
-- a cleaner extension architecture,
-- and a practical example of integrating Rust workflows with the VS Code extension API.
-
-Until then, this repository serves as an educational prototype and reference implementation.
+Requires a working Rust toolchain (`cargo` on your PATH, e.g. via [rustup](https://rustup.rs)).
 
 ## License
 
-Any code in this repository is free to use.
+MIT — free to use.
