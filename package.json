@@ -36,6 +36,10 @@
       {
         "command": "codePulse.showOutput",
         "title": "Code Pulse: Show Output Terminal"
+      },
+      {
+        "command": "codePulse.selectCommand",
+        "title": "Code Pulse: Select Build Command (check / run)"
       }
     ],
     "configuration": {

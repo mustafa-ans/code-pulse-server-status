@@ -44,6 +44,7 @@ The `Running` (pulse) state persists only while the process stays alive — i.e.
 - **Code Pulse: Build / Restart** — start or restart a build (also the status-bar click action).
 - **Code Pulse: Stop** — stop the current build/server.
 - **Code Pulse: Show Output Terminal** — reveal the output terminal.
+- **Code Pulse: Select Build Command (check / run)** — switch between `cargo check` and `cargo run` from a quick-pick; it saves the setting and rebuilds.
 
 ## Running locally
 
@@ -54,6 +55,16 @@ The `Running` (pulse) state persists only while the process stays alive — i.e.
 5. Open a Rust workspace (one containing `Cargo.toml`) and save a `.rs` file.
 
 Requires a working Rust toolchain (`cargo` on your PATH, e.g. via [rustup](https://rustup.rs)).
+
+## Tests
+
+Unit tests run through VS Code's test host:
+
+```
+npm test
+```
+
+This compiles, lints, then downloads a throwaway VS Code build and runs the Mocha suite. The cargo-output parser is covered by `src/test/suite/parser.test.ts`. The first run is slower because it downloads VS Code.
 
 ## License
 

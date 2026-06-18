@@ -54,6 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('codePulse.start', () => start()),
 		vscode.commands.registerCommand('codePulse.stop', () => stop(true)),
 		vscode.commands.registerCommand('codePulse.showOutput', () => output?.reveal()),
+		vscode.commands.registerCommand('codePulse.selectCommand', () => selectCommand()),
 	);
 
 	// Our "watcher": rebuild when a Rust source file is saved.
@@ -82,6 +83,35 @@ export function deactivate(): void {
 
 function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration('codePulse');
+}
+
+/**
+ * Quick-pick to switch the cargo command (check / run) without editing settings,
+ * then rebuild with the new command.
+ */
+async function selectCommand(): Promise<void> {
+	const current = getConfig().get<string>('command', 'run');
+	const items: vscode.QuickPickItem[] = [
+		{ label: 'run', description: 'cargo run — compile and launch the binary/server' },
+		{ label: 'check', description: 'cargo check — faster, only verify it compiles' },
+	];
+	for (const item of items) {
+		if (item.label === current) {
+			item.description += '  (current)';
+		}
+	}
+	const pick = await vscode.window.showQuickPick(items, {
+		placeHolder: `Code Pulse build command (currently: ${current})`,
+	});
+	if (!pick) {
+		return;
+	}
+	const folder = vscode.workspace.workspaceFolders?.[0];
+	const target = folder
+		? vscode.ConfigurationTarget.Workspace
+		: vscode.ConfigurationTarget.Global;
+	await getConfig().update('command', pick.label, target);
+	start();
 }
 
 function start(): void {
@@ -181,17 +211,19 @@ function stop(showMessage: boolean): void {
 }
 
 /**
- * Parse a single line of cargo JSON. Lines that don't parse as a cargo record
- * are program output (from `cargo run`) and are written through verbatim.
+ * Classify a single line of cargo stdout. Pure and free of side effects so it
+ * can be unit-tested without VS Code. Lines that aren't a cargo record are
+ * program output (from `cargo run`) and are passed through verbatim.
  */
-function handleStdoutLine(
-	line: string,
-	term: PtyTerminal,
-	onBuildFinished: (success: boolean) => void,
-): void {
+export type ParsedCargoLine =
+	| { kind: 'build-finished'; success: boolean }
+	| { kind: 'compiler-message'; rendered: string }
+	| { kind: 'passthrough'; text: string };
+
+export function parseCargoLine(line: string): ParsedCargoLine | undefined {
 	const trimmed = line.trim();
 	if (trimmed === '') {
-		return;
+		return undefined;
 	}
 
 	let msg: CargoMessage | undefined;
@@ -205,14 +237,40 @@ function handleStdoutLine(
 
 	if (!msg || typeof msg.reason !== 'string') {
 		// Not a cargo record -> program stdout from `cargo run`.
-		term.writeLine(line);
-		return;
+		return { kind: 'passthrough', text: line };
 	}
 
 	if (msg.reason === 'compiler-message' && msg.message?.rendered) {
-		term.write(msg.message.rendered);
-	} else if (msg.reason === 'build-finished') {
-		onBuildFinished(msg.success === true);
+		return { kind: 'compiler-message', rendered: msg.message.rendered };
+	}
+	if (msg.reason === 'build-finished') {
+		return { kind: 'build-finished', success: msg.success === true };
+	}
+	return undefined; // a cargo record we don't act on
+}
+
+/**
+ * Apply a parsed line: stream output to the terminal or report build status.
+ */
+function handleStdoutLine(
+	line: string,
+	term: PtyTerminal,
+	onBuildFinished: (success: boolean) => void,
+): void {
+	const parsed = parseCargoLine(line);
+	if (!parsed) {
+		return;
+	}
+	switch (parsed.kind) {
+		case 'passthrough':
+			term.writeLine(parsed.text);
+			break;
+		case 'compiler-message':
+			term.write(parsed.rendered);
+			break;
+		case 'build-finished':
+			onBuildFinished(parsed.success);
+			break;
 	}
 }
 
