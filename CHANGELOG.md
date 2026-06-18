@@ -22,6 +22,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Relaxed the ESLint naming rule to allow idiomatic PascalCase enum members.
 - Cleaned up VS Code `launch.json` / `tasks.json` / `settings.json` left over from the removed webpack build.
 
+- Added `clippy` and `test` command modes alongside `check`/`run`, switchable from the quick-pick.
+- Tooltip now reports build/run duration and a live error/warning count.
+- Programs that build-and-exit settle on a steady success check ("ran OK") instead of flatlining; long-running servers pulse continuously.
+- Restarts kill the whole process tree so servers aren't orphaned (no stuck ports).
+- Added a "Code Pulse" Output channel that timestamps every state transition.
+
 ## [0.0.1]
 
 - Initial release (cargo-watch based).

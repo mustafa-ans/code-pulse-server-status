@@ -47,17 +47,25 @@ suite('parseCargoLine', () => {
 		);
 	});
 
-	test('compiler-message exposes the rendered diagnostic', () => {
+	test('compiler-message exposes its level and rendered diagnostic', () => {
 		const rendered = 'error[E0425]: cannot find value `x` in this scope';
 		assert.deepStrictEqual(
-			parseCargoLine(JSON.stringify({ reason: 'compiler-message', message: { rendered } })),
-			{ kind: 'compiler-message', rendered },
+			parseCargoLine(JSON.stringify({ reason: 'compiler-message', message: { level: 'error', rendered } })),
+			{ kind: 'compiler-message', level: 'error', rendered },
+		);
+	});
+
+	test('a warning-level compiler-message keeps its level', () => {
+		const rendered = 'warning: unused variable: `y`';
+		assert.deepStrictEqual(
+			parseCargoLine(JSON.stringify({ reason: 'compiler-message', message: { level: 'warning', rendered } })),
+			{ kind: 'compiler-message', level: 'warning', rendered },
 		);
 	});
 
 	test('compiler-message without a rendered body is not acted on', () => {
 		assert.strictEqual(
-			parseCargoLine(JSON.stringify({ reason: 'compiler-message', message: {} })),
+			parseCargoLine(JSON.stringify({ reason: 'compiler-message', message: { level: 'error' } })),
 			undefined,
 		);
 	});

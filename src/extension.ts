@@ -2,18 +2,18 @@ import * as vscode from 'vscode';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 
 /**
- * Code Pulse — self-contained Rust build/server status in the status bar.
- * Watcher = VS Code save event; build status = cargo JSON message format.
+ * Code Pulse — a build/run heartbeat for Rust, in the VS Code status bar.
+ * Watcher = VS Code's save event; status = cargo's JSON message stream.
  */
 
-type CodePulseCommand = 'check' | 'run';
+type CodePulseCommand = 'check' | 'run' | 'clippy' | 'test';
 
 const enum State {
-	Idle,
-	Building,
-	Ok,       // `cargo check` succeeded
-	Running,  // `cargo run` build succeeded; binary/server is up
-	Failed,
+	Idle,      // nothing running (flatline)
+	Building,  // compiling (spinner)
+	Running,   // a `run`/`test` process is alive (pulse)
+	Done,      // finished successfully (check)
+	Failed,    // build error or non-zero exit (red cross)
 }
 
 interface CargoMessage {
@@ -31,16 +31,21 @@ let log: vscode.OutputChannel | undefined;
 let currentChild: ChildProcessWithoutNullStreams | undefined;
 let saveDebounce: NodeJS.Timeout | undefined;
 let activeCommand: CodePulseCommand = 'run';
-let pulseHoldTimer: NodeJS.Timeout | undefined;
-let runningSince = 0;
-const PULSE_HOLD_MS = 3000; // keep the pulse visible at least this long after a quick exit
+let buildStartedAt = 0;
+let errorCount = 0;
+let warningCount = 0;
+
+// `run` and `test` keep a process alive after the build (server / test run);
+// `check` and `clippy` are finished once the build completes.
+function isLongRunning(command: CodePulseCommand): boolean {
+	return command === 'run' || command === 'test';
+}
 
 export function activate(context: vscode.ExtensionContext): void {
 	log = vscode.window.createOutputChannel('Code Pulse');
 	context.subscriptions.push(log);
 
-	// Left side, where the eye lands first. No id, so priority controls order:
-	// higher = further left.
+	// Left side, where the eye lands first. No id, so priority controls order.
 	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusBarItem.name = 'Code Pulse';
 	statusBarItem.command = 'codePulse.start';
@@ -87,22 +92,14 @@ function logLine(message: string): void {
 	log?.appendLine(`${t}  ${message}`);
 }
 
-function clearPulseHold(): void {
-	if (pulseHoldTimer) {
-		clearTimeout(pulseHoldTimer);
-		pulseHoldTimer = undefined;
-	}
-}
-
-/**
- * Quick-pick to switch the cargo command (check / run) without editing
- * settings, then rebuild with the new command.
- */
+/** Quick-pick to switch the cargo command, persist it, and rebuild. */
 async function selectCommand(): Promise<void> {
 	const current = getConfig().get<string>('command', 'run');
 	const items: vscode.QuickPickItem[] = [
 		{ label: 'run', description: 'cargo run — compile and launch the binary/server' },
-		{ label: 'check', description: 'cargo check — faster, only verify it compiles' },
+		{ label: 'check', description: 'cargo check — fast type-check, no binary' },
+		{ label: 'clippy', description: 'cargo clippy — lint with Clippy' },
+		{ label: 'test', description: 'cargo test — build and run tests' },
 	];
 	for (const item of items) {
 		if (item.label === current) {
@@ -110,7 +107,7 @@ async function selectCommand(): Promise<void> {
 		}
 	}
 	const pick = await vscode.window.showQuickPick(items, {
-		placeHolder: `Code Pulse build command (currently: ${current})`,
+		placeHolder: `Code Pulse command (currently: ${current})`,
 	});
 	if (!pick) {
 		return;
@@ -134,14 +131,16 @@ function start(reveal: boolean): void {
 		return;
 	}
 
-	// Restart semantics: kill any in-flight build/server before starting anew.
-	stop(false);
+	stop(false); // restart semantics: kill any in-flight build/server first
 
 	const config = getConfig();
-	const command = (config.get<string>('command', 'run') as CodePulseCommand);
+	const command = config.get<string>('command', 'run') as CodePulseCommand;
 	const cargoPath = config.get<string>('cargoPath', 'cargo');
 	const cwd = folder.uri.fsPath;
 	activeCommand = command;
+	buildStartedAt = Date.now();
+	errorCount = 0;
+	warningCount = 0;
 
 	const args = [command, '--message-format=json-diagnostic-rendered-ansi'];
 
@@ -175,9 +174,8 @@ function start(reveal: boolean): void {
 			stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
 			handleStdoutLine(line, term, (success) => {
 				buildSucceeded = success;
-				const next = success ? (command === 'run' ? State.Running : State.Ok) : State.Failed;
 				logLine(`build-finished: success=${success}`);
-				setState(next);
+				setState(success ? (isLongRunning(command) ? State.Running : State.Done) : State.Failed);
 				if (!success) {
 					maybeRevealOnFailure(term);
 				}
@@ -196,33 +194,18 @@ function start(reveal: boolean): void {
 		currentChild = undefined;
 		const failed = buildSucceeded === false || (code !== 0 && code !== null);
 		if (failed) {
-			logLine(`process exited: code=${code} → Failed`);
+			logLine(`exited code=${code} → Failed`);
 			setState(State.Failed);
 			maybeRevealOnFailure(term);
-		} else if (command === 'run') {
-			if (buildSucceeded) {
-				// Pulse is already on. Keep it visible for a grace period so a quick
-				// program still flashes a heartbeat; a live server stays pulsing.
-				const remaining = Math.max(0, PULSE_HOLD_MS - (Date.now() - runningSince));
-				logLine(`process exited: code=${code} → flatline in ${remaining}ms`);
-				clearPulseHold();
-				pulseHoldTimer = setTimeout(() => {
-					pulseHoldTimer = undefined;
-					setState(State.Idle);
-				}, remaining);
-			} else {
-				logLine(`process exited: code=${code} → Idle (flatline)`);
-				setState(State.Idle);
-			}
 		} else {
-			logLine(`process exited: code=${code} → Ok`);
-			setState(State.Ok);
+			// Server stopped / program or tests finished cleanly -> steady check.
+			logLine(`exited code=${code} → Done`);
+			setState(State.Done);
 		}
 	});
 }
 
 function stop(showMessage: boolean): void {
-	clearPulseHold();
 	if (saveDebounce) {
 		clearTimeout(saveDebounce);
 		saveDebounce = undefined;
@@ -268,7 +251,7 @@ function killProcessTree(child: ChildProcessWithoutNullStreams): void {
  */
 export type ParsedCargoLine =
 	| { kind: 'build-finished'; success: boolean }
-	| { kind: 'compiler-message'; rendered: string }
+	| { kind: 'compiler-message'; level: string | undefined; rendered: string }
 	| { kind: 'passthrough'; text: string };
 
 export function parseCargoLine(line: string): ParsedCargoLine | undefined {
@@ -291,7 +274,7 @@ export function parseCargoLine(line: string): ParsedCargoLine | undefined {
 	}
 
 	if (msg.reason === 'compiler-message' && msg.message?.rendered) {
-		return { kind: 'compiler-message', rendered: msg.message.rendered };
+		return { kind: 'compiler-message', level: msg.message.level, rendered: msg.message.rendered };
 	}
 	if (msg.reason === 'build-finished') {
 		return { kind: 'build-finished', success: msg.success === true };
@@ -313,6 +296,11 @@ function handleStdoutLine(
 			term.writeLine(parsed.text);
 			break;
 		case 'compiler-message':
+			if (parsed.level === 'error') {
+				errorCount++;
+			} else if (parsed.level === 'warning') {
+				warningCount++;
+			}
 			term.write(parsed.rendered);
 			break;
 		case 'build-finished':
@@ -338,26 +326,46 @@ function maybeRevealOnFailure(term: PtyTerminal): void {
 	}
 }
 
+function fmtElapsed(): string {
+	if (!buildStartedAt) {
+		return '';
+	}
+	const s = (Date.now() - buildStartedAt) / 1000;
+	return s < 10 ? `${s.toFixed(1)}s` : `${Math.round(s)}s`;
+}
+
+function fmtCounts(): string {
+	const parts: string[] = [];
+	if (errorCount > 0) {
+		parts.push(`${errorCount} error${errorCount === 1 ? '' : 's'}`);
+	}
+	if (warningCount > 0) {
+		parts.push(`${warningCount} warning${warningCount === 1 ? '' : 's'}`);
+	}
+	return parts.join(', ');
+}
+
 function stateName(state: State): string {
 	switch (state) {
 		case State.Idle: return 'idle (flatline)';
 		case State.Building: return 'building';
-		case State.Ok: return 'cargo check ok';
 		case State.Running: return 'running (pulse)';
+		case State.Done: return 'done (check)';
 		case State.Failed: return 'failed';
 	}
 }
 
 /**
- * Icon-only status. The hover tooltip is the "help text": it names the cargo
- * command and what a click does. Pulse = alive, flatline = not running.
+ * Icon-only status; the tooltip is the help text (command, timing, counts).
+ * Pulse = alive, flatline = idle, check = finished OK, red = broke.
  */
 function setState(state: State): void {
 	statusBarItem.backgroundColor = undefined;
 	const cmd = state === State.Idle ? getConfig().get<string>('command', 'run') : activeCommand;
+	const counts = fmtCounts();
+	const countsSuffix = counts ? ` · ${counts}` : '';
 	switch (state) {
 		case State.Idle:
-			// Flatline = no pulse (nothing running). Pairs with $(pulse) below.
 			statusBarItem.text = '$(dash)';
 			statusBarItem.tooltip = `Code Pulse · idle (flatline) — click to run cargo ${cmd}`;
 			break;
@@ -365,18 +373,19 @@ function setState(state: State): void {
 			statusBarItem.text = '$(sync~spin)';
 			statusBarItem.tooltip = `Code Pulse · building — cargo ${cmd}`;
 			break;
-		case State.Ok:
-			statusBarItem.text = '$(check)';
-			statusBarItem.tooltip = 'Code Pulse · cargo check passed — click to re-check';
-			break;
 		case State.Running:
 			statusBarItem.text = '$(pulse)';
-			statusBarItem.tooltip = 'Code Pulse · running cargo run — click to restart';
-			runningSince = Date.now();
+			statusBarItem.tooltip = `Code Pulse · cargo ${cmd} running — click to restart`;
 			break;
+		case State.Done: {
+			statusBarItem.text = '$(check)';
+			const verb = activeCommand === 'run' ? 'ran OK' : activeCommand === 'test' ? 'tests passed' : 'passed';
+			statusBarItem.tooltip = `Code Pulse · cargo ${activeCommand} ${verb} in ${fmtElapsed()}${countsSuffix} — click to re-run`;
+			break;
+		}
 		case State.Failed:
 			statusBarItem.text = '$(error)';
-			statusBarItem.tooltip = `Code Pulse · cargo ${cmd} failed — click to rebuild`;
+			statusBarItem.tooltip = `Code Pulse · cargo ${activeCommand} failed in ${fmtElapsed()}${countsSuffix} — click to rebuild`;
 			statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 			break;
 	}
@@ -432,8 +441,7 @@ class PtyTerminal {
 
 	clear(): void {
 		this.ensure();
-		// ANSI: clear screen + scrollback + move cursor home.
-		this.writeEmitter.fire('\x1b[2J\x1b[3J\x1b[H');
+		this.writeEmitter.fire('\x1b[2J\x1b[3J\x1b[H'); // clear screen + scrollback + home
 	}
 
 	write(text: string): void {

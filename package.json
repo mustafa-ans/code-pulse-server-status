@@ -40,7 +40,7 @@
       },
       {
         "command": "codePulse.selectCommand",
-        "title": "Code Pulse: Select Build Command (check / run)"
+        "title": "Code Pulse: Select Command"
       }
     ],
     "configuration": {
@@ -50,14 +50,18 @@
           "type": "string",
           "enum": [
             "check",
-            "run"
+            "run",
+            "clippy",
+            "test"
           ],
           "enumDescriptions": [
-            "Run `cargo check` — faster, only verifies the code compiles.",
-            "Run `cargo run` — compiles and launches the binary/server."
+            "cargo check — fast type-check, no binary.",
+            "cargo run — compile and launch the binary/server.",
+            "cargo clippy — lint with Clippy.",
+            "cargo test — build and run tests."
           ],
           "default": "run",
-          "description": "Which cargo command Code Pulse runs to determine build status."
+          "description": "Which cargo command Code Pulse runs."
         },
         "codePulse.runOnSave": {
           "type": "boolean",
