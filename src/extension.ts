@@ -2,11 +2,8 @@ import * as vscode from 'vscode';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 
 /**
- * Code Pulse
- * ----------
- * Self-contained Rust build/server status in the VS Code status bar. It uses
- * VS Code's save event as the watcher and cargo's JSON message format as the
- * source of truth for build status (no cargo-watch, no string-grepping).
+ * Code Pulse — self-contained Rust build/server status in the status bar.
+ * Watcher = VS Code save event; build status = cargo JSON message format.
  */
 
 type CodePulseCommand = 'check' | 'run';
@@ -19,7 +16,6 @@ const enum State {
 	Failed,
 }
 
-// A single cargo JSON record we care about (one JSON object per stdout line).
 interface CargoMessage {
 	reason: string;
 	success?: boolean; // present on reason === 'build-finished'
@@ -31,14 +27,18 @@ interface CargoMessage {
 
 let statusBarItem: vscode.StatusBarItem;
 let output: PtyTerminal | undefined;
+let log: vscode.OutputChannel | undefined;
 let currentChild: ChildProcessWithoutNullStreams | undefined;
 let saveDebounce: NodeJS.Timeout | undefined;
 let activeCommand: CodePulseCommand = 'run';
 
 export function activate(context: vscode.ExtensionContext): void {
-	// Right side of the status bar. Higher priority = further LEFT (toward the
-	// language/tool indicators like rust-analyzer); lower = further right.
-	statusBarItem = vscode.window.createStatusBarItem('codePulse.status', vscode.StatusBarAlignment.Right, 20);
+	log = vscode.window.createOutputChannel('Code Pulse');
+	context.subscriptions.push(log);
+
+	// No id: priority alone controls position. Higher = further LEFT (toward
+	// rust-analyzer / language indicators); lower = further right.
+	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	statusBarItem.name = 'Code Pulse';
 	statusBarItem.command = 'codePulse.start';
 	context.subscriptions.push(statusBarItem);
@@ -79,6 +79,11 @@ function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration('codePulse');
 }
 
+function logLine(message: string): void {
+	const t = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+	log?.appendLine(`${t}  ${message}`);
+}
+
 /**
  * Quick-pick to switch the cargo command (check / run) without editing
  * settings, then rebuild with the new command.
@@ -109,8 +114,8 @@ async function selectCommand(): Promise<void> {
 }
 
 /**
- * Start (or restart) a build. `reveal` brings the reused output terminal to the
- * front — true for manual clicks, false for save-triggered rebuilds.
+ * Start (or restart) a build. `reveal` brings the reused terminal to the front
+ * — true for manual clicks, false for save-triggered rebuilds.
  */
 function start(reveal: boolean): void {
 	const folder = vscode.workspace.workspaceFolders?.[0];
@@ -131,11 +136,13 @@ function start(reveal: boolean): void {
 	const args = [command, '--message-format=json-diagnostic-rendered-ansi'];
 
 	const term = ensureTerminal();
+	term.clear(); // fresh output for each build
 	term.writeLine(`\x1b[2m$ ${cargoPath} ${args.join(' ')}\x1b[0m`);
 	if (reveal) {
 		term.reveal();
 	}
 
+	logLine(`▶ cargo ${command}`);
 	setState(State.Building);
 
 	let child: ChildProcessWithoutNullStreams;
@@ -158,7 +165,9 @@ function start(reveal: boolean): void {
 			stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
 			handleStdoutLine(line, term, (success) => {
 				buildSucceeded = success;
-				setState(success ? (command === 'run' ? State.Running : State.Ok) : State.Failed);
+				const next = success ? (command === 'run' ? State.Running : State.Ok) : State.Failed;
+				logLine(`build-finished: success=${success}`);
+				setState(next);
 				if (!success) {
 					maybeRevealOnFailure(term);
 				}
@@ -175,11 +184,14 @@ function start(reveal: boolean): void {
 			return; // superseded by a newer run; ignore.
 		}
 		currentChild = undefined;
-		if (buildSucceeded === false || (code !== 0 && code !== null)) {
+		const failed = buildSucceeded === false || (code !== 0 && code !== null);
+		if (failed) {
+			logLine(`process exited: code=${code} → Failed`);
 			setState(State.Failed);
 			maybeRevealOnFailure(term);
 		} else {
 			// `check` stays OK; a `run` process that exited cleanly is idle again.
+			logLine(`process exited: code=${code} → ${command === 'run' ? 'Idle (flatline)' : 'Ok'}`);
 			setState(command === 'run' ? State.Idle : State.Ok);
 		}
 	});
@@ -194,17 +206,33 @@ function stop(showMessage: boolean): void {
 	currentChild = undefined;
 	if (child) {
 		child.removeAllListeners();
-		try {
-			child.kill();
-		} catch {
-			/* already gone */
-		}
+		killProcessTree(child);
 		if (showMessage) {
+			logLine('stopped by user');
 			output?.writeLine('\x1b[2m-- stopped by user --\x1b[0m');
 		}
 	}
 	if (showMessage) {
 		setState(State.Idle);
+	}
+}
+
+/**
+ * Kill cargo AND the binary/server it spawned. `child.kill()` alone only signals
+ * cargo, orphaning a long-running server (and tying up its port on restart).
+ */
+function killProcessTree(child: ChildProcessWithoutNullStreams): void {
+	const pid = child.pid;
+	if (pid === undefined) {
+		return;
+	}
+	if (process.platform === 'win32') {
+		const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
+		killer.on('error', () => {
+			try { child.kill(); } catch { /* already gone */ }
+		});
+	} else {
+		try { child.kill(); } catch { /* already gone */ }
 	}
 }
 
@@ -234,7 +262,6 @@ export function parseCargoLine(line: string): ParsedCargoLine | undefined {
 	}
 
 	if (!msg || typeof msg.reason !== 'string') {
-		// Not a cargo record -> program stdout from `cargo run`.
 		return { kind: 'passthrough', text: line };
 	}
 
@@ -247,9 +274,6 @@ export function parseCargoLine(line: string): ParsedCargoLine | undefined {
 	return undefined; // a cargo record we don't act on
 }
 
-/**
- * Apply a parsed line: stream output to the terminal or report build status.
- */
 function handleStdoutLine(
 	line: string,
 	term: PtyTerminal,
@@ -274,10 +298,11 @@ function handleStdoutLine(
 
 function failSpawn(err: unknown): void {
 	const message = err instanceof Error ? err.message : String(err);
-	setState(State.Failed);
 	const hint = message.includes('ENOENT')
 		? 'cargo was not found on your PATH. Install Rust (rustup) or set "codePulse.cargoPath".'
 		: message;
+	logLine(`spawn error: ${hint}`);
+	setState(State.Failed);
 	vscode.window.showErrorMessage(`Code Pulse: ${hint}`);
 	output?.writeLine(`\x1b[31mError: ${hint}\x1b[0m`);
 }
@@ -288,16 +313,26 @@ function maybeRevealOnFailure(term: PtyTerminal): void {
 	}
 }
 
+function stateName(state: State): string {
+	switch (state) {
+		case State.Idle: return 'idle (flatline)';
+		case State.Building: return 'building';
+		case State.Ok: return 'cargo check ok';
+		case State.Running: return 'running (pulse)';
+		case State.Failed: return 'failed';
+	}
+}
+
 /**
  * Icon-only status. The hover tooltip is the "help text": it names the cargo
- * command and what a click does.
+ * command and what a click does. Pulse = alive, flatline = not running.
  */
 function setState(state: State): void {
 	statusBarItem.backgroundColor = undefined;
 	const cmd = state === State.Idle ? getConfig().get<string>('command', 'run') : activeCommand;
 	switch (state) {
 		case State.Idle:
-			// Flatline = no pulse (server not running). Pairs with $(pulse) below.
+			// Flatline = no pulse (nothing running). Pairs with $(pulse) below.
 			statusBarItem.text = '$(dash)';
 			statusBarItem.tooltip = `Code Pulse · idle (flatline) — click to run cargo ${cmd}`;
 			break;
@@ -319,6 +354,7 @@ function setState(state: State): void {
 			statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 			break;
 	}
+	logLine(`icon → ${stateName(state)}`);
 }
 
 function ensureTerminal(): PtyTerminal {
@@ -326,6 +362,7 @@ function ensureTerminal(): PtyTerminal {
 		output = new PtyTerminal(() => {
 			// User closed the Code Pulse terminal: stop the run and reset so the
 			// status doesn't go stale and no replacement terminal is spawned.
+			logLine('terminal closed → Idle');
 			stop(false);
 			setState(State.Idle);
 		});
@@ -365,6 +402,12 @@ class PtyTerminal {
 
 	private ensure(): vscode.Terminal {
 		return this.terminal ?? this.create();
+	}
+
+	clear(): void {
+		this.ensure();
+		// ANSI: clear screen + scrollback + move cursor home.
+		this.writeEmitter.fire('\x1b[2J\x1b[3J\x1b[H');
 	}
 
 	write(text: string): void {
