@@ -19,16 +19,17 @@ Output streams into a reusable "Code Pulse" terminal that looks like a normal ca
 
 ## Status bar states
 
-| State | Status bar | Meaning |
-| --- | --- | --- |
-| Idle | `○ Code Pulse` | Ready — click to build |
-| Building | `⟳ Building…` | Compiling |
-| Build OK | `✓ Build OK` | `cargo check` succeeded |
-| Running | `❤ Running` | `cargo run` build succeeded; the binary/server is up |
-| Exited | `⊘ Exited` | The `cargo run` process finished and exited cleanly — click to run again |
-| Failed | `⊗` (red, icon only) | Build failed; the output terminal is revealed |
+The indicator is **icon-only** — hover it for a tooltip that names the current `cargo` command and what a click does. It sits on the right-hand side of the status bar, near the language/tool indicators. The icon follows the project's namesake: a **pulse** (`♥`) when a `cargo run` server is alive, a **flatline** (`—`) when it isn't.
 
-The `Running` (pulse) state persists only while the process stays alive — i.e. a real long-running server. A short `cargo run` that prints and exits will flash `Running` and then settle on `Exited`.
+| Icon | Meaning |
+| --- | --- |
+| `—` (flatline) | Idle / not running — click to build/run |
+| `⟳` (spinning) | Building |
+| `✓` | `cargo check` succeeded |
+| `♥` (pulse) | `cargo run` built; the binary/server is up |
+| `✖` (red) | Build failed; the output terminal is revealed |
+
+The pulse persists only while the process stays alive — i.e. a real long-running server. A short `cargo run` that prints and exits flashes the pulse, then returns to idle. Closing the Code Pulse terminal stops the current run and resets the icon.
 
 ## Settings
 

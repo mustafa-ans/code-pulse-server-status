@@ -4,15 +4,9 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 /**
  * Code Pulse
  * ----------
- * A self-contained Rust build-status indicator for the VS Code status bar.
- *
- * It does NOT depend on cargo-watch (archived) or any external watcher crate.
- * Instead it uses two things VS Code and cargo already give us for free:
- *   1. `vscode.workspace.onDidSaveTextDocument` as the file watcher.
- *   2. `cargo <cmd> --message-format=json-diagnostic-rendered-ansi`, whose
- *      machine-readable output is a stable, documented contract -- so build
- *      status comes from parsed JSON records, not fragile string-grepping of
- *      localized human text.
+ * Self-contained Rust build/server status in the VS Code status bar. It uses
+ * VS Code's save event as the watcher and cargo's JSON message format as the
+ * source of truth for build status (no cargo-watch, no string-grepping).
  */
 
 type CodePulseCommand = 'check' | 'run';
@@ -22,12 +16,10 @@ const enum State {
 	Building,
 	Ok,       // `cargo check` succeeded
 	Running,  // `cargo run` build succeeded; binary/server is up
-	Exited,   // `cargo run` finished and the process exited cleanly
 	Failed,
 }
 
-// A single cargo JSON record we care about. cargo emits one JSON object per
-// line on stdout. See `cargo build --message-format=json`.
+// A single cargo JSON record we care about (one JSON object per stdout line).
 interface CargoMessage {
 	reason: string;
 	success?: boolean; // present on reason === 'build-finished'
@@ -41,9 +33,12 @@ let statusBarItem: vscode.StatusBarItem;
 let output: PtyTerminal | undefined;
 let currentChild: ChildProcessWithoutNullStreams | undefined;
 let saveDebounce: NodeJS.Timeout | undefined;
+let activeCommand: CodePulseCommand = 'run';
 
 export function activate(context: vscode.ExtensionContext): void {
-	statusBarItem = vscode.window.createStatusBarItem('codePulse.status', vscode.StatusBarAlignment.Right, -100);
+	// Right side of the status bar. Higher priority = further LEFT (toward the
+	// language/tool indicators like rust-analyzer); lower = further right.
+	statusBarItem = vscode.window.createStatusBarItem('codePulse.status', vscode.StatusBarAlignment.Right, 20);
 	statusBarItem.name = 'Code Pulse';
 	statusBarItem.command = 'codePulse.start';
 	context.subscriptions.push(statusBarItem);
@@ -51,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	statusBarItem.show();
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('codePulse.start', () => start()),
+		vscode.commands.registerCommand('codePulse.start', () => start(true)),
 		vscode.commands.registerCommand('codePulse.stop', () => stop(true)),
 		vscode.commands.registerCommand('codePulse.showOutput', () => output?.reveal()),
 		vscode.commands.registerCommand('codePulse.selectCommand', () => selectCommand()),
@@ -66,11 +61,10 @@ export function activate(context: vscode.ExtensionContext): void {
 			if (!getConfig().get<boolean>('runOnSave', true)) {
 				return;
 			}
-			// Debounce bursts of saves (e.g. "save all").
 			if (saveDebounce) {
 				clearTimeout(saveDebounce);
 			}
-			saveDebounce = setTimeout(() => start(), 250);
+			saveDebounce = setTimeout(() => start(false), 250);
 		}),
 	);
 
@@ -86,8 +80,8 @@ function getConfig(): vscode.WorkspaceConfiguration {
 }
 
 /**
- * Quick-pick to switch the cargo command (check / run) without editing settings,
- * then rebuild with the new command.
+ * Quick-pick to switch the cargo command (check / run) without editing
+ * settings, then rebuild with the new command.
  */
 async function selectCommand(): Promise<void> {
 	const current = getConfig().get<string>('command', 'run');
@@ -111,28 +105,36 @@ async function selectCommand(): Promise<void> {
 		? vscode.ConfigurationTarget.Workspace
 		: vscode.ConfigurationTarget.Global;
 	await getConfig().update('command', pick.label, target);
-	start();
+	start(true);
 }
 
-function start(): void {
+/**
+ * Start (or restart) a build. `reveal` brings the reused output terminal to the
+ * front — true for manual clicks, false for save-triggered rebuilds.
+ */
+function start(reveal: boolean): void {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	if (!folder) {
 		vscode.window.showErrorMessage('Code Pulse: open a folder containing a Cargo project first.');
 		return;
 	}
 
-	// Restart semantics: kill any in-flight build/server before starting a new one.
+	// Restart semantics: kill any in-flight build/server before starting anew.
 	stop(false);
 
 	const config = getConfig();
 	const command = (config.get<string>('command', 'run') as CodePulseCommand);
 	const cargoPath = config.get<string>('cargoPath', 'cargo');
 	const cwd = folder.uri.fsPath;
+	activeCommand = command;
 
 	const args = [command, '--message-format=json-diagnostic-rendered-ansi'];
 
 	const term = ensureTerminal();
 	term.writeLine(`\x1b[2m$ ${cargoPath} ${args.join(' ')}\x1b[0m`);
+	if (reveal) {
+		term.reveal();
+	}
 
 	setState(State.Building);
 
@@ -164,9 +166,6 @@ function start(): void {
 		}
 	});
 
-	// cargo prints human-readable progress ("Compiling", "Finished", "Running",
-	// "error: could not compile") to stderr -- write it straight through so the
-	// terminal still looks like a normal cargo session.
 	child.stderr.on('data', (data: Buffer) => term.write(data.toString()));
 
 	child.on('error', (err) => failSpawn(err));
@@ -176,13 +175,12 @@ function start(): void {
 			return; // superseded by a newer run; ignore.
 		}
 		currentChild = undefined;
-		// `cargo run` for a long-lived server only reaches here on exit.
 		if (buildSucceeded === false || (code !== 0 && code !== null)) {
 			setState(State.Failed);
 			maybeRevealOnFailure(term);
-		} else if (command === 'run') {
-			// Server/program ended cleanly -> distinct "exited" state.
-			setState(State.Exited);
+		} else {
+			// `check` stays OK; a `run` process that exited cleanly is idle again.
+			setState(command === 'run' ? State.Idle : State.Ok);
 		}
 	});
 }
@@ -203,9 +201,9 @@ function stop(showMessage: boolean): void {
 		}
 		if (showMessage) {
 			output?.writeLine('\x1b[2m-- stopped by user --\x1b[0m');
-			setState(State.Idle);
 		}
-	} else if (showMessage) {
+	}
+	if (showMessage) {
 		setState(State.Idle);
 	}
 }
@@ -290,32 +288,34 @@ function maybeRevealOnFailure(term: PtyTerminal): void {
 	}
 }
 
+/**
+ * Icon-only status. The hover tooltip is the "help text": it names the cargo
+ * command and what a click does.
+ */
 function setState(state: State): void {
 	statusBarItem.backgroundColor = undefined;
+	const cmd = state === State.Idle ? getConfig().get<string>('command', 'run') : activeCommand;
 	switch (state) {
 		case State.Idle:
-			statusBarItem.text = '$(circle-outline) Code Pulse';
-			statusBarItem.tooltip = 'Code Pulse: click to build the Rust project';
+			// Flatline = no pulse (server not running). Pairs with $(pulse) below.
+			statusBarItem.text = '$(dash)';
+			statusBarItem.tooltip = `Code Pulse · idle (flatline) — click to run cargo ${cmd}`;
 			break;
 		case State.Building:
-			statusBarItem.text = '$(sync~spin) Building…';
-			statusBarItem.tooltip = 'Code Pulse: compiling…';
+			statusBarItem.text = '$(sync~spin)';
+			statusBarItem.tooltip = `Code Pulse · building — cargo ${cmd}`;
 			break;
 		case State.Ok:
-			statusBarItem.text = '$(check) Build OK';
-			statusBarItem.tooltip = 'Code Pulse: cargo check succeeded';
+			statusBarItem.text = '$(check)';
+			statusBarItem.tooltip = 'Code Pulse · cargo check passed — click to re-check';
 			break;
 		case State.Running:
-			statusBarItem.text = '$(pulse) Running';
-			statusBarItem.tooltip = 'Code Pulse: build succeeded, server is running';
-			break;
-		case State.Exited:
-			statusBarItem.text = '$(circle-slash) Exited';
-			statusBarItem.tooltip = 'Code Pulse: process exited cleanly — click to run again';
+			statusBarItem.text = '$(pulse)';
+			statusBarItem.tooltip = 'Code Pulse · running cargo run — click to restart';
 			break;
 		case State.Failed:
 			statusBarItem.text = '$(error)';
-			statusBarItem.tooltip = 'Code Pulse: build failed — click to rebuild';
+			statusBarItem.tooltip = `Code Pulse · cargo ${cmd} failed — click to rebuild`;
 			statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 			break;
 	}
@@ -323,19 +323,27 @@ function setState(state: State): void {
 
 function ensureTerminal(): PtyTerminal {
 	if (!output) {
-		output = new PtyTerminal();
+		output = new PtyTerminal(() => {
+			// User closed the Code Pulse terminal: stop the run and reset so the
+			// status doesn't go stale and no replacement terminal is spawned.
+			stop(false);
+			setState(State.Idle);
+		});
 	}
 	return output;
 }
 
 /**
- * A reusable pseudo-terminal. One instance is kept for the lifetime of the
- * extension so repeated builds stream into the same "Code Pulse" terminal
- * instead of spawning a new one each time.
+ * A single reusable pseudo-terminal kept for the extension's lifetime so every
+ * build streams into the same "Code Pulse" terminal instead of spawning a new
+ * one each time.
  */
 class PtyTerminal {
 	private readonly writeEmitter = new vscode.EventEmitter<string>();
 	private terminal: vscode.Terminal | undefined;
+	private closeSub: vscode.Disposable | undefined;
+
+	constructor(private readonly onClose?: () => void) {}
 
 	private create(): vscode.Terminal {
 		const pty: vscode.Pseudoterminal = {
@@ -345,9 +353,11 @@ class PtyTerminal {
 		};
 		const terminal = vscode.window.createTerminal({ name: 'Code Pulse', pty });
 		this.terminal = terminal;
-		vscode.window.onDidCloseTerminal((closed) => {
+		this.closeSub?.dispose();
+		this.closeSub = vscode.window.onDidCloseTerminal((closed) => {
 			if (closed === this.terminal) {
 				this.terminal = undefined;
+				this.onClose?.();
 			}
 		});
 		return terminal;

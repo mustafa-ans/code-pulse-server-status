@@ -19,6 +19,7 @@
     "watch"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:rust",
     "workspaceContains:**/Cargo.toml"
   ],

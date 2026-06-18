@@ -14,8 +14,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Reuse a single "Code Pulse" terminal across builds.
 - Fixed the broken command id and extension packaging (`main` now points at compiled output; `out/` ships in the package).
 - Moved the status bar indicator to the right-hand side of the status bar.
-- Build failures now show an icon-only indicator (red background) rather than a text label.
-- Added a distinct `Exited` state when a `cargo run` process finishes and exits cleanly (previously reverted to idle).
+- Status bar indicator is icon-only across all states; the current `cargo` command and click action are shown in the hover tooltip.
+- A clean `cargo run` exit returns to idle (no separate "exited" state).
+- Closing the Code Pulse terminal stops the current run and resets the indicator; the single terminal is reused across builds and a click reveals it.
 - Gave the status bar item a stable id and name so it can be toggled from the status bar context menu.
 - Upgraded the test runner's `glob` dependency (8 → 10, promise API) and dropped the now-bundled `@types/glob`, clearing the deprecation warning on install.
 - Relaxed the ESLint naming rule to allow idiomatic PascalCase enum members.
