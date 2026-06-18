@@ -19,7 +19,7 @@ Output streams into a reusable "Code Pulse" terminal that looks like a normal ca
 
 ## Status bar states
 
-The indicator is **icon-only** — hover it for a tooltip that names the current `cargo` command and what a click does. It sits on the right-hand side of the status bar, near the language/tool indicators. The icon follows the project's namesake: a **pulse** (`♥`) when a `cargo run` server is alive, a **flatline** (`—`) when it isn't.
+The indicator is **icon-only** — hover it for a tooltip that names the current `cargo` command and what a click does. It sits on the left-hand side of the status bar. The icon follows the project's namesake: a **pulse** (`♥`) when a `cargo run` server is alive, a **flatline** (`—`) when it isn't.
 
 | Icon | Meaning |
 | --- | --- |

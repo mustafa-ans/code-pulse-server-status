@@ -31,14 +31,17 @@ let log: vscode.OutputChannel | undefined;
 let currentChild: ChildProcessWithoutNullStreams | undefined;
 let saveDebounce: NodeJS.Timeout | undefined;
 let activeCommand: CodePulseCommand = 'run';
+let pulseHoldTimer: NodeJS.Timeout | undefined;
+let runningSince = 0;
+const PULSE_HOLD_MS = 3000; // keep the pulse visible at least this long after a quick exit
 
 export function activate(context: vscode.ExtensionContext): void {
 	log = vscode.window.createOutputChannel('Code Pulse');
 	context.subscriptions.push(log);
 
-	// No id: priority alone controls position. Higher = further LEFT (toward
-	// rust-analyzer / language indicators); lower = further right.
-	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+	// Left side, where the eye lands first. No id, so priority controls order:
+	// higher = further left.
+	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusBarItem.name = 'Code Pulse';
 	statusBarItem.command = 'codePulse.start';
 	context.subscriptions.push(statusBarItem);
@@ -82,6 +85,13 @@ function getConfig(): vscode.WorkspaceConfiguration {
 function logLine(message: string): void {
 	const t = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
 	log?.appendLine(`${t}  ${message}`);
+}
+
+function clearPulseHold(): void {
+	if (pulseHoldTimer) {
+		clearTimeout(pulseHoldTimer);
+		pulseHoldTimer = undefined;
+	}
 }
 
 /**
@@ -189,15 +199,30 @@ function start(reveal: boolean): void {
 			logLine(`process exited: code=${code} → Failed`);
 			setState(State.Failed);
 			maybeRevealOnFailure(term);
+		} else if (command === 'run') {
+			if (buildSucceeded) {
+				// Pulse is already on. Keep it visible for a grace period so a quick
+				// program still flashes a heartbeat; a live server stays pulsing.
+				const remaining = Math.max(0, PULSE_HOLD_MS - (Date.now() - runningSince));
+				logLine(`process exited: code=${code} → flatline in ${remaining}ms`);
+				clearPulseHold();
+				pulseHoldTimer = setTimeout(() => {
+					pulseHoldTimer = undefined;
+					setState(State.Idle);
+				}, remaining);
+			} else {
+				logLine(`process exited: code=${code} → Idle (flatline)`);
+				setState(State.Idle);
+			}
 		} else {
-			// `check` stays OK; a `run` process that exited cleanly is idle again.
-			logLine(`process exited: code=${code} → ${command === 'run' ? 'Idle (flatline)' : 'Ok'}`);
-			setState(command === 'run' ? State.Idle : State.Ok);
+			logLine(`process exited: code=${code} → Ok`);
+			setState(State.Ok);
 		}
 	});
 }
 
 function stop(showMessage: boolean): void {
+	clearPulseHold();
 	if (saveDebounce) {
 		clearTimeout(saveDebounce);
 		saveDebounce = undefined;
@@ -347,6 +372,7 @@ function setState(state: State): void {
 		case State.Running:
 			statusBarItem.text = '$(pulse)';
 			statusBarItem.tooltip = 'Code Pulse · running cargo run — click to restart';
+			runningSince = Date.now();
 			break;
 		case State.Failed:
 			statusBarItem.text = '$(error)';
