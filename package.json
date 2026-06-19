@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "code-pulse",
   "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mustafa-ans/code-pulse-server-status.git"
+  },
   "engines": {
     "vscode": "^1.81.0"
   },
