@@ -1,9 +1,9 @@
 {
-  "name": "code-pulse-server-status",
-  "displayName": "Code Pulse",
+  "name": "code-vitals",
+  "displayName": "Code Vitals",
   "description": "Real-time Rust build and server status in the VS Code status bar. Save a .rs file and watch the status bar icon change from building to running or failed, no need to keep an eye on the terminal. Self-contained: no cargo-watch or other external watcher required.",
   "version": "0.1.0",
-  "publisher": "code-pulse",
+  "publisher": "MustafaAnsari",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
@@ -32,26 +32,26 @@
   "contributes": {
     "commands": [
       {
-        "command": "codePulse.start",
-        "title": "Code Pulse: Build / Restart"
+        "command": "codeVitals.start",
+        "title": "Code Vitals: Build / Restart"
       },
       {
-        "command": "codePulse.stop",
-        "title": "Code Pulse: Stop"
+        "command": "codeVitals.stop",
+        "title": "Code Vitals: Stop"
       },
       {
-        "command": "codePulse.showOutput",
-        "title": "Code Pulse: Show Output Terminal"
+        "command": "codeVitals.showOutput",
+        "title": "Code Vitals: Show Output Terminal"
       },
       {
-        "command": "codePulse.selectCommand",
-        "title": "Code Pulse: Select Command"
+        "command": "codeVitals.selectCommand",
+        "title": "Code Vitals: Select Command"
       }
     ],
     "configuration": {
-      "title": "Code Pulse",
+      "title": "Code Vitals",
       "properties": {
-        "codePulse.command": {
+        "codeVitals.command": {
           "type": "string",
           "enum": [
             "check",
@@ -66,19 +66,19 @@
             "cargo test, build and run tests."
           ],
           "default": "run",
-          "description": "Which cargo command Code Pulse runs."
+          "description": "Which cargo command Code Vitals runs."
         },
-        "codePulse.runOnSave": {
+        "codeVitals.runOnSave": {
           "type": "boolean",
           "default": true,
           "description": "Automatically rebuild whenever a Rust file is saved."
         },
-        "codePulse.revealTerminalOnFailure": {
+        "codeVitals.revealTerminalOnFailure": {
           "type": "boolean",
           "default": true,
-          "description": "Reveal the Code Pulse output terminal when a build fails."
+          "description": "Reveal the Code Vitals output terminal when a build fails."
         },
-        "codePulse.cargoPath": {
+        "codeVitals.cargoPath": {
           "type": "string",
           "default": "cargo",
           "description": "Path to the cargo executable. Change this if cargo is not on your PATH."

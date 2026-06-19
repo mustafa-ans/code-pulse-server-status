@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 // One reusable pseudo-terminal for the whole session, so builds stream into the
-// same "Code Pulse" terminal instead of opening a new one every time.
+// same "Code Vitals" terminal instead of opening a new one every time.
 export class PtyTerminal {
 	private readonly writeEmitter = new vscode.EventEmitter<string>();
 	private terminal: vscode.Terminal | undefined;
@@ -15,7 +15,7 @@ export class PtyTerminal {
 			open: () => { /* nothing to do */ },
 			close: () => { /* keep the emitter for reuse */ },
 		};
-		const terminal = vscode.window.createTerminal({ name: 'Code Pulse', pty });
+		const terminal = vscode.window.createTerminal({ name: 'Code Vitals', pty });
 		this.terminal = terminal;
 		this.closeSub?.dispose();
 		this.closeSub = vscode.window.onDidCloseTerminal((closed) => {

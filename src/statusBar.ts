@@ -24,8 +24,8 @@ export class StatusBar {
 	constructor(private readonly log: (message: string) => void) {
 		// Left side, where the eye lands first; priority sets the order.
 		this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-		this.item.name = 'Code Pulse';
-		this.item.command = 'codePulse.start';
+		this.item.name = 'Code Vitals';
+		this.item.command = 'codeVitals.start';
 	}
 
 	show(): void {
@@ -43,25 +43,25 @@ export class StatusBar {
 		switch (state) {
 			case State.Idle:
 				this.item.text = '$(dash)';
-				this.item.tooltip = `Code Pulse: idle. Click to run cargo ${cmd}.`;
+				this.item.tooltip = `Code Vitals: idle. Click to run cargo ${cmd}.`;
 				break;
 			case State.Building:
 				this.item.text = '$(sync~spin)';
-				this.item.tooltip = `Code Pulse: building cargo ${cmd}.`;
+				this.item.tooltip = `Code Vitals: building cargo ${cmd}.`;
 				break;
 			case State.Running:
 				this.item.text = '$(pulse)';
-				this.item.tooltip = `Code Pulse: cargo ${cmd} running. Click to restart.`;
+				this.item.tooltip = `Code Vitals: cargo ${cmd} running. Click to restart.`;
 				break;
 			case State.Done: {
 				this.item.text = '$(check)';
 				const verb = cmd === 'run' ? 'ran OK' : cmd === 'test' ? 'tests passed' : 'passed';
-				this.item.tooltip = `Code Pulse: cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
+				this.item.tooltip = `Code Vitals: cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
 				break;
 			}
 			case State.Failed:
 				this.item.text = '$(error)';
-				this.item.tooltip = `Code Pulse: cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
+				this.item.tooltip = `Code Vitals: cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
 				this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 				break;
 		}

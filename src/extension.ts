@@ -4,7 +4,7 @@ import { CodePulseCommand, isLongRunning, parseCargoLine } from './cargo';
 import { PtyTerminal } from './terminal';
 import { State, StatusBar } from './statusBar';
 
-// Code Pulse watches saves, runs cargo, and reflects the result in the status
+// Code Vitals watches saves, runs cargo, and reflects the result in the status
 // bar. The watcher is VS Code's save event; the status comes from cargo's JSON
 // message stream rather than scraping human-readable output.
 
@@ -19,17 +19,17 @@ let errorCount = 0;
 let warningCount = 0;
 
 export function activate(context: vscode.ExtensionContext): void {
-	log = vscode.window.createOutputChannel('Code Pulse');
+	log = vscode.window.createOutputChannel('Code Vitals');
 	statusBar = new StatusBar(logLine);
 	context.subscriptions.push(log, { dispose: () => statusBar.dispose() });
 	setStatus(State.Idle);
 	statusBar.show();
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('codePulse.start', () => start(true)),
-		vscode.commands.registerCommand('codePulse.stop', () => stop(true)),
-		vscode.commands.registerCommand('codePulse.showOutput', () => output?.reveal()),
-		vscode.commands.registerCommand('codePulse.selectCommand', () => selectCommand()),
+		vscode.commands.registerCommand('codeVitals.start', () => start(true)),
+		vscode.commands.registerCommand('codeVitals.stop', () => stop(true)),
+		vscode.commands.registerCommand('codeVitals.showOutput', () => output?.reveal()),
+		vscode.commands.registerCommand('codeVitals.selectCommand', () => selectCommand()),
 	);
 
 	// Rebuild when a Rust file is saved, debounced so "save all" fires once.
@@ -56,7 +56,7 @@ export function deactivate(): void {
 }
 
 function getConfig(): vscode.WorkspaceConfiguration {
-	return vscode.workspace.getConfiguration('codePulse');
+	return vscode.workspace.getConfiguration('codeVitals');
 }
 
 function logLine(message: string): void {
@@ -86,7 +86,7 @@ async function selectCommand(): Promise<void> {
 		}
 	}
 	const pick = await vscode.window.showQuickPick(items, {
-		placeHolder: `Code Pulse command (currently: ${current})`,
+		placeHolder: `Code Vitals command (currently: ${current})`,
 	});
 	if (!pick) {
 		return;
@@ -104,7 +104,7 @@ async function selectCommand(): Promise<void> {
 function start(reveal: boolean): void {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	if (!folder) {
-		vscode.window.showErrorMessage('Code Pulse: open a folder containing a Cargo project first.');
+		vscode.window.showErrorMessage('Code Vitals: open a folder containing a Cargo project first.');
 		return;
 	}
 
@@ -249,11 +249,11 @@ function handleStdoutLine(
 function failSpawn(err: unknown): void {
 	const message = err instanceof Error ? err.message : String(err);
 	const hint = message.includes('ENOENT')
-		? 'cargo was not found on your PATH. Install Rust (rustup) or set "codePulse.cargoPath".'
+		? 'cargo was not found on your PATH. Install Rust (rustup) or set "codeVitals.cargoPath".'
 		: message;
 	logLine(`spawn error: ${hint}`);
 	setStatus(State.Failed);
-	vscode.window.showErrorMessage(`Code Pulse: ${hint}`);
+	vscode.window.showErrorMessage(`Code Vitals: ${hint}`);
 	output?.writeLine(`\x1b[31mError: ${hint}\x1b[0m`);
 }
 

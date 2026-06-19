@@ -1,8 +1,8 @@
-# Code Pulse
+# Code Vitals
 
 A heartbeat for your Rust code, right in the VS Code status bar.
 
-Save a file and Code Pulse builds (or runs, lints, or tests) your crate in the background, then shows the result as one glanceable icon: a pulse while your server is alive, a flatline when it isn't, a check when a build or test passes, and a red cross the moment something breaks. No more babysitting cargo in a terminal while you wait.
+Save a file and Code Vitals builds (or runs, lints, or tests) your crate in the background, then shows the result as one glanceable icon: a pulse while your server is alive, a flatline when it isn't, a check when a build or test passes, and a red cross the moment something breaks. No more babysitting cargo in a terminal while you wait.
 
 ## At a glance
 
@@ -18,7 +18,7 @@ Hover the icon for the details: which cargo command ran, how long it took, and h
 
 ## Why it exists
 
-The Rust edit, compile, run loop involves a lot of waiting and terminal watching. Earlier tools leaned on cargo-watch, which was archived in January 2025. Code Pulse does the same job with one quiet indicator that sits where your eyes already are, and it needs no external watcher and no runtime dependencies.
+The Rust edit, compile, run loop involves a lot of waiting and terminal watching. Earlier tools leaned on cargo-watch, which was archived in January 2025. Code Vitals does the same job with one quiet indicator that sits where your eyes already are, and it needs no external watcher and no runtime dependencies.
 
 ## Features
 
@@ -27,17 +27,17 @@ The Rust edit, compile, run loop involves a lot of waiting and terminal watching
 - Four modes. `check`, `run`, `clippy`, and `test`, switchable from a quick pick.
 - Timing and diagnostics. The tooltip shows build and run time plus a live error and warning count.
 - Robust by design. Status comes from cargo's structured JSON (`build-finished` records), not from scraping localized terminal text, so it survives cargo rewording its output or running in another language.
-- One terminal. Output streams into a single "Code Pulse" terminal that clears at the start of each build instead of piling up.
+- One terminal. Output streams into a single "Code Vitals" terminal that clears at the start of each build instead of piling up.
 - Clean restarts. Restarting kills the whole process tree, so a long running server never gets orphaned on its port.
-- Event log. A "Code Pulse" output channel timestamps every state change, so the indicator is never a black box.
+- Event log. A "Code Vitals" output channel timestamps every state change, so the indicator is never a black box.
 - Self contained. Pure TypeScript, no runtime dependencies, no cargo-watch.
 
 ## How it works
 
-Code Pulse leans on two things VS Code and cargo already provide:
+Code Vitals leans on two things VS Code and cargo already provide:
 
 1. `vscode.workspace.onDidSaveTextDocument` as the watcher. Save a Rust file and a build starts, debounced so a "save all" fires once.
-2. `cargo <cmd> --message-format=json-diagnostic-rendered-ansi` as a stable, documented contract. Code Pulse reads the `build-finished` and `compiler-message` records to decide status, and streams the rendered diagnostics into its terminal so the output still looks like a normal cargo session.
+2. `cargo <cmd> --message-format=json-diagnostic-rendered-ansi` as a stable, documented contract. Code Vitals reads the `build-finished` and `compiler-message` records to decide status, and streams the rendered diagnostics into its terminal so the output still looks like a normal cargo session.
 
 The line classifier that turns that stream into state (`parseCargoLine`) is a pure, dependency free function with its own unit tests, kept separate from the VS Code API.
 
@@ -49,19 +49,19 @@ A working Rust toolchain with `cargo` on your PATH (for example via [rustup](htt
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `codePulse.command` | `run` | What to run: `check`, `run`, `clippy`, or `test`. |
-| `codePulse.runOnSave` | `true` | Rebuild automatically when a Rust file is saved. |
-| `codePulse.revealTerminalOnFailure` | `true` | Open the output terminal when something fails. |
-| `codePulse.cargoPath` | `cargo` | Path to the cargo executable if it isn't on your PATH. |
+| `codeVitals.command` | `run` | What to run: `check`, `run`, `clippy`, or `test`. |
+| `codeVitals.runOnSave` | `true` | Rebuild automatically when a Rust file is saved. |
+| `codeVitals.revealTerminalOnFailure` | `true` | Open the output terminal when something fails. |
+| `codeVitals.cargoPath` | `cargo` | Path to the cargo executable if it isn't on your PATH. |
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| Code Pulse: Build / Restart | Start or restart the current command (also the status bar click action). |
-| Code Pulse: Stop | Stop the running build or server and reset to idle. |
-| Code Pulse: Show Output Terminal | Reveal the "Code Pulse" terminal. |
-| Code Pulse: Select Command | Pick check, run, clippy, or test from a quick pick and rebuild. |
+| Code Vitals: Build / Restart | Start or restart the current command (also the status bar click action). |
+| Code Vitals: Stop | Stop the running build or server and reset to idle. |
+| Code Vitals: Show Output Terminal | Reveal the "Code Vitals" terminal. |
+| Code Vitals: Select Command | Pick check, run, clippy, or test from a quick pick and rebuild. |
 
 ## Getting started
 
@@ -96,6 +96,7 @@ This compiles, lints, then runs the Mocha suite inside a throwaway VS Code insta
 - An inline error and warning badge on the icon.
 - Push cargo diagnostics into the Problems panel for in-editor squiggles.
 - Configurable debounce.
+- Support for more languages (Go, JavaScript, TypeScript) through per-language build providers.
 
 ## License
 
