@@ -1,10 +1,10 @@
 // Cargo's machine-readable message stream is our source of truth for build
 // status. Everything here is pure and VS Code-free, so it's unit-testable.
 
-export type CodePulseCommand = 'check' | 'run' | 'clippy' | 'test';
+export type CargoCommand = 'check' | 'run' | 'clippy' | 'test';
 
 // `run` and `test` keep a process alive after the build; `check`/`clippy` don't.
-export function isLongRunning(command: CodePulseCommand): boolean {
+export function isLongRunning(command: CargoCommand): boolean {
 	return command === 'run' || command === 'test';
 }
 

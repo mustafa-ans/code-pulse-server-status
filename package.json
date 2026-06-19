@@ -46,6 +46,10 @@
       {
         "command": "codeVitals.selectCommand",
         "title": "Code Vitals: Select Command"
+      },
+      {
+        "command": "codeVitals.toggleRevealOnFailure",
+        "title": "Code Vitals: Toggle Auto-Open Terminal on Failure"
       }
     ],
     "configuration": {
