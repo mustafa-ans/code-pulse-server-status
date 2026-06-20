@@ -2,16 +2,16 @@ import * as vscode from 'vscode';
 import { CargoCommand } from './cargo';
 
 export enum State {
-	Idle,      // flatline, nothing running
-	Building,  // spinner
-	Running,   // pulse, a run/test process is alive
-	Done,      // check, finished successfully
-	Failed,    // red cross
+	Idle,
+	Building,
+	Running,
+	Done,
+	Failed,
 }
 
 export interface StatusContext {
 	command: CargoCommand;
-	startedAt: number; // Date.now() at build start, for elapsed time
+	startedAt: number;
 	errors: number;
 	warnings: number;
 	revealOnFailure: boolean;
@@ -23,7 +23,6 @@ export class StatusBar {
 	private readonly item: vscode.StatusBarItem;
 
 	constructor(private readonly log: (message: string) => void) {
-		// Left side, where the eye lands first; priority sets the order.
 		this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 		this.item.name = 'Code Vitals';
 		this.item.command = 'codeVitals.start';
@@ -45,25 +44,25 @@ export class StatusBar {
 		switch (state) {
 			case State.Idle:
 				this.item.text = '$(dash)';
-				message = `Code Vitals: idle. Click to run cargo ${cmd}.`;
+				message = `Idle. Click to run cargo ${cmd}.`;
 				break;
 			case State.Building:
 				this.item.text = '$(sync~spin)';
-				message = `Code Vitals: building cargo ${cmd}.`;
+				message = `Building cargo ${cmd}.`;
 				break;
 			case State.Running:
 				this.item.text = '$(pulse)';
-				message = `Code Vitals: cargo ${cmd} running. Click to restart.`;
+				message = `Running cargo ${cmd}. Click to restart.`;
 				break;
 			case State.Done: {
 				this.item.text = '$(check)';
 				const verb = cmd === 'run' ? 'ran OK' : cmd === 'test' ? 'tests passed' : 'passed';
-				message = `Code Vitals: cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
+				message = `cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
 				break;
 			}
 			case State.Failed:
 				this.item.text = '$(error)';
-				message = `Code Vitals: cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
+				message = `cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
 				this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 				break;
 		}
