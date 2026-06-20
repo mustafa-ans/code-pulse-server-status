@@ -1,19 +1,20 @@
 import * as vscode from 'vscode';
-import { CodePulseCommand } from './cargo';
+import { CargoCommand } from './cargo';
 
 export enum State {
-	Idle,      // flatline, nothing running
-	Building,  // spinner
-	Running,   // pulse, a run/test process is alive
-	Done,      // check, finished successfully
-	Failed,    // red cross
+	Idle,
+	Building,
+	Running,
+	Done,
+	Failed,
 }
 
 export interface StatusContext {
-	command: CodePulseCommand;
-	startedAt: number; // Date.now() at build start, for elapsed time
+	command: CargoCommand;
+	startedAt: number;
 	errors: number;
 	warnings: number;
+	revealOnFailure: boolean;
 }
 
 // The icon mirrors the project's namesake: pulse when something is alive,
@@ -22,7 +23,6 @@ export class StatusBar {
 	private readonly item: vscode.StatusBarItem;
 
 	constructor(private readonly log: (message: string) => void) {
-		// Left side, where the eye lands first; priority sets the order.
 		this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 		this.item.name = 'Code Vitals';
 		this.item.command = 'codeVitals.start';
@@ -40,33 +40,48 @@ export class StatusBar {
 		this.item.backgroundColor = undefined;
 		const cmd = ctx.command;
 		const extra = countsSuffix(ctx);
+		let message = '';
 		switch (state) {
 			case State.Idle:
 				this.item.text = '$(dash)';
-				this.item.tooltip = `Code Vitals: idle. Click to run cargo ${cmd}.`;
+				message = `Idle. Click to run cargo ${cmd}.`;
 				break;
 			case State.Building:
 				this.item.text = '$(sync~spin)';
-				this.item.tooltip = `Code Vitals: building cargo ${cmd}.`;
+				message = `Building cargo ${cmd}.`;
 				break;
 			case State.Running:
 				this.item.text = '$(pulse)';
-				this.item.tooltip = `Code Vitals: cargo ${cmd} running. Click to restart.`;
+				message = `Running cargo ${cmd}. Click to restart.`;
 				break;
 			case State.Done: {
 				this.item.text = '$(check)';
 				const verb = cmd === 'run' ? 'ran OK' : cmd === 'test' ? 'tests passed' : 'passed';
-				this.item.tooltip = `Code Vitals: cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
+				message = `cargo ${cmd} ${verb} in ${elapsed(ctx)}${extra}. Click to run again.`;
 				break;
 			}
 			case State.Failed:
 				this.item.text = '$(error)';
-				this.item.tooltip = `Code Vitals: cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
+				message = `cargo ${cmd} failed in ${elapsed(ctx)}${extra}. Click to rebuild.`;
 				this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 				break;
 		}
+		this.item.tooltip = tooltip(message, ctx.revealOnFailure);
 		this.log(`icon -> ${label(state)}`);
 	}
+}
+
+// Trusted markdown so the action link is clickable on hover.
+function tooltip(message: string, revealOnFailure: boolean): vscode.MarkdownString {
+	const md = new vscode.MarkdownString();
+	md.isTrusted = true;
+	md.appendMarkdown(message);
+	md.appendMarkdown('\n\n');
+	const action = revealOnFailure
+		? 'Disable auto-open terminal on failure'
+		: 'Enable auto-open terminal on failure';
+	md.appendMarkdown(`[${action}](command:codeVitals.toggleRevealOnFailure)`);
+	return md;
 }
 
 function label(state: State): string {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { CodePulseCommand, isLongRunning, parseCargoLine } from './cargo';
+import { CargoCommand, isLongRunning, parseCargoLine } from './cargo';
 import { PtyTerminal } from './terminal';
 import { State, StatusBar } from './statusBar';
 
@@ -13,10 +13,11 @@ let output: PtyTerminal | undefined;
 let log: vscode.OutputChannel | undefined;
 let currentChild: ChildProcessWithoutNullStreams | undefined;
 let saveDebounce: NodeJS.Timeout | undefined;
-let activeCommand: CodePulseCommand = 'run';
+let activeCommand: CargoCommand = 'run';
 let buildStartedAt = 0;
 let errorCount = 0;
 let warningCount = 0;
+let lastState: State = State.Idle;
 
 export function activate(context: vscode.ExtensionContext): void {
 	log = vscode.window.createOutputChannel('Code Vitals');
@@ -30,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('codeVitals.stop', () => stop(true)),
 		vscode.commands.registerCommand('codeVitals.showOutput', () => output?.reveal()),
 		vscode.commands.registerCommand('codeVitals.selectCommand', () => selectCommand()),
+		vscode.commands.registerCommand('codeVitals.toggleRevealOnFailure', () => toggleRevealOnFailure()),
 	);
 
 	// Rebuild when a Rust file is saved, debounced so "save all" fires once.
@@ -65,10 +67,32 @@ function logLine(message: string): void {
 }
 
 function setStatus(state: State): void {
+	lastState = state;
 	const command = state === State.Idle
-		? (getConfig().get<string>('command', 'run') as CodePulseCommand)
+		? (getConfig().get<string>('command', 'run') as CargoCommand)
 		: activeCommand;
-	statusBar.render(state, { command, startedAt: buildStartedAt, errors: errorCount, warnings: warningCount });
+	statusBar.render(state, {
+		command,
+		startedAt: buildStartedAt,
+		errors: errorCount,
+		warnings: warningCount,
+		revealOnFailure: getConfig().get<boolean>('revealTerminalOnFailure', true),
+	});
+}
+
+// Flip the "open the terminal automatically on failure" setting. Reachable from
+// the status bar tooltip and the command palette.
+async function toggleRevealOnFailure(): Promise<void> {
+	const cfg = getConfig();
+	const next = !cfg.get<boolean>('revealTerminalOnFailure', true);
+	const folder = vscode.workspace.workspaceFolders?.[0];
+	const target = folder
+		? vscode.ConfigurationTarget.Workspace
+		: vscode.ConfigurationTarget.Global;
+	await cfg.update('revealTerminalOnFailure', next, target);
+	logLine(`auto-open on failure: ${next ? 'on' : 'off'}`);
+	vscode.window.showInformationMessage(`Code Vitals: auto-open terminal on failure is now ${next ? 'on' : 'off'}.`);
+	setStatus(lastState);
 }
 
 // Pick a cargo command, save it, and rebuild.
@@ -111,7 +135,7 @@ function start(reveal: boolean): void {
 	stop(false); // kill any in-flight build/server before starting a new one
 
 	const config = getConfig();
-	const command = config.get<string>('command', 'run') as CodePulseCommand;
+	const command = config.get<string>('command', 'run') as CargoCommand;
 	const cargoPath = config.get<string>('cargoPath', 'cargo');
 	const cwd = folder.uri.fsPath;
 	activeCommand = command;
